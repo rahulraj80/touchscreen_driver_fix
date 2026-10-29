@@ -1,6 +1,8 @@
 # Plan — phantom-touch filter for the UX360CA touchscreen
 
-Status: **draft for review** (2026-10-29). Hardware facts: [hardware.md](hardware.md).
+Status: **active** (2026-10-29); decisions settled — userspace filter first,
+phantom-only labelling. Hardware facts: [hardware.md](hardware.md). Recording
+contract: [recording-protocol.md](recording-protocol.md).
 
 The digitizer is physically damaged: some regions inject contacts nobody asked
 for, other regions are dead. The panel will not be replaced, so the fix is a
@@ -78,16 +80,26 @@ the BPF program.
 ## 5. Phases
 
 ### P0 — Safety net and access (½ day)
+Written and committed; **one root run still to do** (no passwordless sudo here).
 
-- `scripts/touchscreen-toggle.sh on|off` (bind/unbind by *sysfs path*, never by
-  node name) + a KDE-friendly hotkey. Always able to go back to stock.
-- Unprivileged capture: small root-run setup that adds `rahul` to `input` and
-  installs a udev rule for `/dev/hidraw0` (`TAG+="uaccess"` or group `input`).
-- Install `evtest`, `python3-evdev`, `hidrd`, `clang`, `bpftool`.
-- Record a 10-minute idle baseline and a first "what does it look like" report.
+- `scripts/touchscreen-toggle.sh status|on|off` — binds/unbinds by *sysfs path*
+  and VID/PID (`0018:2808:5112`), never by event node number, and never the
+  touchpad. `off` is the same mechanism as the desktop's "disable touchscreen".
+- `udev/90-touchscreen-phantom-capture.rules` + `scripts/install-access.sh` —
+  scoped `TAG+="uaccess"` ACL on exactly `/dev/hidraw*` and the touchscreen
+  `/dev/input/event*`; `--remove` undoes it. No `input` group membership.
+- `scripts/doctor.sh` — read-only check: device present and bound, event and
+  hidraw nodes found, nodes readable by the current user, touchpad confirmed
+  separate, `CONFIG_HID_BPF`/BTF/`udev-hid-bpf` present, tooling installed.
+  Exits non-zero while access is missing (currently: 2 failed, 4 warnings —
+  `evtest`, `python3-evdev`, `clang`, `bpftool` absent).
+- Tooling to install: `evtest python3-evdev clang bpftool hidrd`
+  (`hid-tools` is not packaged on F44; the capture rig reads hidraw directly).
+- Still to do after the root run: a 10-minute idle baseline and the first
+  "what does it look like" report.
 
 Exit: can disable/enable the digitizer without reboot; capture runs as `rahul`;
-first phantom frames captured.
+first phantom frames captured. (`doctor.sh` exit 0 is the gate.)
 
 ### P1 — Capture rig (1 day)
 
@@ -116,20 +128,24 @@ is deterministic.
 Exit: three independent idle captures reproduce the same hotspots; every
 phantom event is attributable to a hotspot or to a named geometry/timing rule.
 
-### P3 — Userspace prototype (2-3 days)
+### P3 — Userspace filter (ship first)
 
 - `phantom/decide.py` — the pure, dependency-free decision function.
 - `phantom/daemon.py` — EVIOCGRAB proxy on a uinput clone, with:
   - `--shadow` (pass everything, log every decision — measure with no effect),
   - `--config config/filter.toml`,
   - fail-open on any error, and `phantomctl off` to release the grab.
+- Installed as a **`systemd --user`** unit, not a system daemon: it needs the
+  seat user's udev ACL and nothing more.
 - `tests/` — corpus-driven unit tests: each recorded phantom must be dropped,
   each recorded real touch must be kept. Adding a corpus file adds a test.
 
-Exit: scored on the corpora — ≥95 % suppression, ≤2 % false rejection, added
-latency measured (< 5 ms), shadow log matches offline replay exactly.
+Exit: scored on the phantom-only corpora for suppression (≥95 %), then on a
+short real-touch session for false rejection (≤2 %); added latency measured
+(< 5 ms); shadow log matches offline replay exactly. **This is the first
+deliverable that changes daily use.**
 
-### P4 — HID-BPF implementation (3-5 days)
+### P4 — HID-BPF promotion (only if the userspace filter is not enough)
 
 - `bpf/ftsc1000_filter.bpf.c` — `hid_bpf_ops` `.input_report` with
   `INSERT_HEAD`: read the frame, evaluate the same rules (ghost rectangles
@@ -181,6 +197,7 @@ writes.**
 ```
 docs/hardware.md        verified device facts + re-verify commands
 docs/plan.md            this plan
+docs/recording-protocol.md   phantom-only pilot protocol + labelling rule
 docs/guide.md           tiered guide (30s / 2min / 5min / 15min / 1h)
 tools/capture.py        dual-source recorder
 tools/analyze.py        heatmap + hotspot + geometry analysis
@@ -190,8 +207,12 @@ phantom/decide.py       pure decision function (shared by all harnesses)
 phantom/daemon.py       userspace uinput proxy (dev harness only, not shipped)
 bpf/ftsc1000_filter.bpf.c
 config/filter.toml      rectangles, thresholds, guard
-scripts/touchscreen-toggle.sh
-scripts/install-access.sh   adds input group + hidraw udev rule
+scripts/touchscreen-toggle.sh   on/off/status, VID:PID matched
+scripts/install-access.sh       installs the scoped udev ACL (--remove undoes)
+scripts/doctor.sh               read-only readiness check (exit 0 = ready)
+scripts/capture.sh              start/stop/status/verify/mark/install capture
+systemd/user/phantom-touch-capture.service   userspace capture unit
+udev/90-touchscreen-phantom-capture.rules
 analysis/               ghost-map.json, report.md, history/
 corpus/                 captures (git-ignored — finger-position data)
 ```
@@ -228,15 +249,19 @@ corpus/                 captures (git-ignored — finger-position data)
 
 ## 9. Effort
 
-P0 ½d · P1 1d · P2 2d · P3 3d · P4 5d · P5 2d, plus P6 upkeep. P0-P3 already
-produce a usable daily-driver mitigation; P4 makes it disappear from userspace.
+P0 ½d · P1 1d · P2 2d · P3 3d · P4 5d · P5 2d, plus P6 upkeep. P0-P3 produce a
+usable daily-driver mitigation; P4 is only pursued if userspace is not enough.
+Corpus collection runs in the background throughout, so wall-clock (not effort)
+dominates.
 
 ## 10. Decisions (settled 2026-10-29)
 
-1. **HID-BPF is the only shipping form.** The userspace proxy stays a
-   development harness (shadow mode, replay, per-decision logs) and is turned
-   off once the BPF program is attached. Nothing runs in userspace at the end;
-   the proxy is not a permanent fallback.
+1. **Userspace filter first; HID-BPF is the promotion path.** The first
+   *shippable* artifact is the userspace evdev/uinput filter (P3), installed as
+   a `systemd --user` unit. HID-BPF (P4) is only attempted once the rules are
+   proven on recorded corpora and the userspace latency/fail-open behaviour is
+   measured. It is no longer "BPF or nothing": if the userspace filter is good
+   enough, it stays.
 2. **Dead zones are not recovered.** Only phantom contacts are suppressed — no
    snapping, no expanding hit areas near dead boundaries. Revisit only after
    the ghost map is known and if the blank strips turn out to be painful.
@@ -245,6 +270,15 @@ produce a usable daily-driver mitigation; P4 makes it disappear from userspace.
 4. **Severity today: occasional.** No stopgap filter, no blanket region mask.
    Measurement can take its time; the ghost map has to be trustworthy before
    anything is enabled.
+5. **Labelling: phantom-only sessions.** During a recording the screen is not
+   touched, so every contact is a phantom by construction. Accidental touches
+   are noted by wall-clock time and reconciled at the end into exclusion
+   windows. No drill and no real-touch corpus are required to begin;
+   false-rejection measurement is deferred until suppression is ready to be
+   validated.
+6. **Long windows, not short sessions.** The recorder runs as an unattended
+   user service for days, rotating and pruning. Phantom rarity makes the wall
+   clock, not the script, the scarce resource.
 
 The consequence of (1)+(2): the filter's whole job is "never let a damaged-node
 contact become an event", and every rule that only exists to *improve* dead

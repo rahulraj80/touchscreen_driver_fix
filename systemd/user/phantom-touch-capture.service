@@ -1,0 +1,28 @@
+[Unit]
+Description=Phantom touch capture (userspace; raw HID reports + evdev events)
+Documentation=file:/home/rahul/scripts/touchscreen_driver_fix/docs/PLAN.md
+# User unit on purpose: phantom sessions happen while Rahul is using the
+# laptop, and the udev "uaccess" ACL only exists for the logged-in seat user.
+# Nothing here needs root once the ACL rule is installed.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/rahul/scripts/touchscreen_driver_fix/tools/capture.py run --label phantom --out /home/rahul/scripts/touchscreen_driver_fix/corpus --heartbeat 5 --duration 0
+Restart=always
+RestartSec=5
+# Never give up: phantom touches are rare and the whole point is a long window.
+StartLimitIntervalSec=0
+
+# The daemon only reads input devices and writes its own JSONL logs.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Keep it cheap and out of the way of the desktop.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=default.target

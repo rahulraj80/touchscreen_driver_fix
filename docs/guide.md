@@ -8,10 +8,10 @@ Tiered guide (G10): each tier is self-contained. Facts live in
 Rahul's ASUS UX360CA convertible has a cracked touch digitizer that fires
 phantom touches in some regions and ignores others. The panel is not being
 replaced, so this repo removes the phantoms in software: capture raw HID
-frames, learn where the damage is, and filter those contacts **before**
-`hid-multitouch` turns them into pointer events — shipped as a HID-BPF program
-that auto-attaches at boot, with a userspace proxy used as the development
-harness. Every rule is measured against recorded corpora; nothing is tuned by
+frames, learn where the damage is, and filter those contacts in userspace — a
+`uinput`/evdev daemon that sits before `hid-multitouch` turns them into pointer
+events. HID-BPF remains the promotion path if the userspace layer is not
+enough. Every rule is measured against recorded corpora; nothing is tuned by
 feel.
 
 ## 2 minutes — the presentation (six beats)
@@ -21,9 +21,9 @@ feel.
 2. **Constraint**: the controller (`FTSC1000:00`, HID `2808:5112`, hid-multitouch)
    reports no pressure and no confidence bit. Only geometry, position, timing
    and contact lifecycle are available.
-3. **Layer**: filter at the HID device with HID-BPF (`CONFIG_HID_BPF=y`,
-   `udev-hid-bpf` already installed) — no fork of a generic kernel driver, no
-   module signing, survives kernel updates.
+3. **Layer**: ship a userspace evdev/uinput filter first (`systemd --user`,
+   shadow mode for measurement, fail-open, `phantomctl off` to release); only
+   promote to HID-BPF if latency or robustness demands it.
 4. **Method**: capture raw frames (`hidraw0`) + decoded events (`event4`) →
    activation heatmap → hotspot table → declarative rules → replay-tested.
 5. **Evidence**: suppression and false-rejection are scored on stored corpora
@@ -31,8 +31,9 @@ feel.
    the BPF program.
 6. **Safety**: target by VID/PID, fail open, one filter at a time, no writes to
    the controller, `phantomctl off` restores stock behaviour. Settled rulings:
-   HID-BPF is the *only* shipped form (the proxy never ships), dead regions are
-   not recovered, and capture access comes from a scoped udev ACL.
+   userspace filter ships first (HID-BPF only if needed), dead regions are not
+   recovered, capture access comes from a scoped udev ACL, and labelling uses
+   phantom-only sessions (no touching while recording).
 
 ## 5 minutes — the intro
 
@@ -43,7 +44,7 @@ feel.
                     -> hid-multitouch -> /dev/input/event4 -> libinput -> KWin
                               ^                          ^
                               |                          |
-                    HID-BPF ruleset            userspace proxy (dev harness)
+                 userspace filter (ship first)   HID-BPF (promotion path)
 ```
 
 The product map:

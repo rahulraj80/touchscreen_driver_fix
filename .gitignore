@@ -13,6 +13,9 @@ __pycache__/
 *.pyc
 .venv/
 
+# Test caches
+.pytest_cache/
+
 # Editor/OS noise
 .vscode/
 *.swp
