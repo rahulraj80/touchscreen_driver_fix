@@ -1,0 +1,19 @@
+# Raw touch captures: finger positions, timestamps, session metadata.
+# Derived maps and aggregate reports under analysis/ ARE tracked.
+corpus/
+analysis/history/*.jsonl
+
+# Build output
+*.o
+*.bpf.o
+!vmlinux.h
+bpf/build/
+build/
+__pycache__/
+*.pyc
+.venv/
+
+# Editor/OS noise
+.vscode/
+*.swp
+.DS_Store
