@@ -537,7 +537,7 @@ class Log:
     def close(self) -> None:
         if self.fh is not None:
             # _close_segment() flushes, fsyncs and closes; mark the stop first.
-            self._marker({"t": mono_ns(), "k": "m", "n": "stop", "seg": self.seg_index})
+            self._marker({"t": mono_ns(), "k": "m", "n": "log-close", "seg": self.seg_index})
             self._close_segment()
         self.pool.shutdown(wait=True)
 
@@ -649,6 +649,8 @@ class Recorder:
         self.space_pruned_bytes = 0
         self.low_disk = False
         self.hidraw_note_written = False
+        self.sources_ready = False
+        self.next_source_retry = 0.0
         self._ctl_sock: tuple[socket.socket, socket.socket] | None = None
 
     # -- setup --------------------------------------------------------------
@@ -686,8 +688,12 @@ class Recorder:
             return
         self.sel.register(fd, selectors.EVENT_READ, "fifo")
 
-    def _open_sources(self) -> None:
+    def _open_sources(self) -> bool:
         args = self.args
+        # Reset so a retry does not accumulate duplicate sources.
+        for src in self.sources:
+            src.close()
+        self.sources = []
         hid_path = args.hidraw
         ev_path = args.event
         self.devices: dict = {"vidpid": args.vidpid, "hidraw": hid_path, "event": ev_path}
@@ -723,8 +729,10 @@ class Recorder:
                 continue
             self.sel.register(src.fd, selectors.EVENT_READ, src)
 
-        if not any(s.open_ for s in self.sources):
-            raise SystemExit("[capture] no readable source; run scripts/install-access.sh and scripts/doctor.sh")
+        # Do NOT exit when nothing is readable. A long-running service can start
+        # before the udev ACL exists (e.g. at login, or after a rule change) and
+        # must simply wait and retry instead of crash-looping.
+        return any(s.open_ for s in self.sources)
 
     # -- reading ------------------------------------------------------------
     def _emit(self, obj: dict) -> None:
@@ -1010,7 +1018,9 @@ class Recorder:
             quiet=args.quiet,
         )
         self._install_signals()
-        self._open_sources()
+        self.sources_ready = self._open_sources()
+        if not self.sources_ready:
+            self.next_source_retry = time.monotonic() + 15.0
 
         meta = {
             "schema": SCHEMA,
@@ -1050,6 +1060,13 @@ class Recorder:
             )
         if ev_src and not ev_src.open_:
             self._marker("evdev-unavailable", ev_src.last_error or "open failed", path=ev_src.path)
+        if not self.sources_ready:
+            self._marker("sources-unavailable", "no readable device yet; retrying")
+            print(
+                "[capture] WAITING: no readable device. Recording will begin as soon as\n"
+                "          the udev ACL is in place (sudo scripts/install-access.sh).",
+                file=sys.stderr,
+            )
 
         print(f"[capture] run      {self.run_dir}", file=sys.stderr)
         for src in self.sources:
@@ -1071,9 +1088,18 @@ class Recorder:
                     self.reopen_now = False
                     self._reopen()
 
+                if not self.sources_ready and now >= self.next_source_retry:
+                    self.sources_ready = self._open_sources()
+                    self.next_source_retry = now + 15.0
+                    if self.sources_ready:
+                        self._marker("sources-ok", count=len(self.sources))
+                        print("[capture] device became readable; recording started", file=sys.stderr)
+
                 timeouts = [self.next_beat]
                 if self.deadline:
                     timeouts.append(self.deadline)
+                if not self.sources_ready:
+                    timeouts.append(self.next_source_retry)
                 for src in self.sources:
                     if not src.open_:
                         timeouts.append(src.next_open)

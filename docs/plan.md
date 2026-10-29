@@ -85,7 +85,7 @@ Written and committed; **one root run still to do** (no passwordless sudo here).
 - `scripts/touchscreen-toggle.sh status|on|off` — binds/unbinds by *sysfs path*
   and VID/PID (`0018:2808:5112`), never by event node number, and never the
   touchpad. `off` is the same mechanism as the desktop's "disable touchscreen".
-- `udev/90-touchscreen-phantom-capture.rules` + `scripts/install-access.sh` —
+- `udev/72-touchscreen-phantom-capture.rules` + `scripts/install-access.sh` —
   scoped `TAG+="uaccess"` ACL on exactly `/dev/hidraw*` and the touchscreen
   `/dev/input/event*`; `--remove` undoes it. No `input` group membership.
 - `scripts/doctor.sh` — read-only check: device present and bound, event and
@@ -212,7 +212,7 @@ scripts/install-access.sh       installs the scoped udev ACL (--remove undoes)
 scripts/doctor.sh               read-only readiness check (exit 0 = ready)
 scripts/capture.sh              start/stop/status/verify/mark/install capture
 systemd/user/phantom-touch-capture.service   userspace capture unit
-udev/90-touchscreen-phantom-capture.rules
+udev/72-touchscreen-phantom-capture.rules
 analysis/               ghost-map.json, report.md, history/
 corpus/                 captures (git-ignored — finger-position data)
 ```

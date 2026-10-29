@@ -1,0 +1,23 @@
+# Scoped capture access for the damaged FTSC1000 touch digitizer.
+#
+# Two things make this file easy to get wrong:
+#
+# 1. The "72-" prefix MATTERS. systemd's 73-seat-late.rules runs the
+#    "uaccess" builtin that actually applies the ACL. A TAG+="uaccess" added
+#    by a 90- rule arrives after that pass and does nothing. Keep this file
+#    numbered below 73.
+# 2. ATTRS{idVendor}/ATTRS{idProduct} DO NOT EXIST on the HID bus. This is an
+#    i2c-hid device, not USB, so the usual USB-style match silently never
+#    fires. Match the HID device's kernel name or modalias instead.
+#
+# Nothing else on the box changes: this is NOT `input` group membership and
+# NOT a blanket permission widening. The touchpad (0018:04F3:301A) is a
+# different device on the same i2c bus and is deliberately not matched.
+
+# Raw HID reports — the ground truth for capture and replay.
+SUBSYSTEM=="hidraw", KERNELS=="0018:2808:5112.*", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{modalias}=="hid:b0018g0004v00002808p00005112", TAG+="uaccess"
+
+# Decoded multi-touch events — what libinput/KWin actually consume.
+SUBSYSTEM=="input", KERNEL=="event*", KERNELS=="0018:2808:5112.*", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{modalias}=="hid:b0018g0004v00002808p00005112", TAG+="uaccess"
