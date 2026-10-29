@@ -30,7 +30,9 @@ feel.
    (idle capture, target drill), plus parity between the Python prototype and
    the BPF program.
 6. **Safety**: target by VID/PID, fail open, one filter at a time, no writes to
-   the controller, `phantomctl off` restores stock behaviour.
+   the controller, `phantomctl off` restores stock behaviour. Settled rulings:
+   HID-BPF is the *only* shipped form (the proxy never ships), dead regions are
+   not recovered, and capture access comes from a scoped udev ACL.
 
 ## 5 minutes — the intro
 
@@ -75,8 +77,10 @@ frame, and can rewrite the report buffer.
 
 **Why keep a userspace proxy at all?** Iteration speed and observability. It
 can log every decision for every frame with no effect (`--shadow`), which is how
-the thresholds get chosen. The C/BPF version is then parity-tested against the
-same decision tables on the same recorded corpus.
+the thresholds get chosen. It is a development harness only: once the BPF
+program is attached the proxy is switched off and no daemon ships. The C/BPF
+version is parity-tested against the same decision tables on the same recorded
+corpus.
 
 **The rule model** (all data-driven, one `config/filter.toml`):
 

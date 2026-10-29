@@ -40,14 +40,16 @@ replacing the panel.
 | Layer | Effort | Iteration | Survives updates | Notes |
 |---|---|---|---|---|
 | **A. libinput / KDE settings** | minutes | n/a | yes | Only an affine calibration matrix (stretch/shift axes). Cannot remove interior ghosts. Useful *only* if the damage is an edge strip. |
-| **B. Userspace evdev proxy** (EVIOCGRAB + uinput) | low | seconds, no reboot | yes (systemd unit) | Full flexibility, testable offline, but adds a daemon and a second input device that libinput must classify; extra latency; dies => must fail open. |
+| **B. Userspace evdev proxy** (EVIOCGRAB + uinput) | low | seconds, no reboot | yes (systemd unit) | Full flexibility, testable offline, but adds a daemon and a second input device that libinput must classify; extra latency; dies => must fail open. **Dev harness only** — not shipped. |
 | **C. HID-BPF at the HID device** | medium | reload in seconds, no reboot | yes, and across kernel upgrades (BTF-portable) | Filters *before* `hid-multitouch` allocates MT slots: the cleanest place, no fork of a generic driver, no module signing, auto-attach via udev. **Recommended carrier.** |
 | **D. Patch `hid-multitouch`** | high | rebuild + reload + reboot | no (akmods/dkms) | Needed only if C cannot express a rule (e.g. MT-slot semantics changes). Carries a generic-driver fork forever. |
 
-**Decision: build the logic once, ship it as C.** Phase B is the development
-harness (fast, offline-replayable, gives per-decision logs); Phase C is the
-product. Both consume the *same* declarative rule table so behaviour can be
-verified identical on a recorded corpus.
+**Decision (settled 2026-10-29, ADR `filter-at-the-hid-device` in the
+knowledge repo): build the logic once, ship it as C.** Phase B is the
+development harness (fast, offline-replayable, gives per-decision logs) and is
+switched off once C is attached — it is not a permanent fallback. Both consume
+the *same* declarative rule table so behaviour can be verified identical on a
+recorded corpus.
 
 HID-BPF facts confirmed on this box: `CONFIG_HID_BPF=y`, `hid_bpf_ops`
 struct_ops in BTF, `/sys/kernel/btf/hid_multitouch` module BTF,
@@ -160,8 +162,9 @@ writes.**
   touchscreen behaves exactly as stock.
 - `phantomctl` status/doctor: is the filter attached? which ruleset? last
   drift check? recent phantom rate?
-- Packaging: RPM or `install.sh` + systemd unit only for the optional proxy;
-  the BPF path needs no service.
+- Packaging: the shipped artifact is the `bpf.o` + one hwdb line (plus the
+  `phantomctl` helper and the ghost-map snapshots). **No service ships** — the
+  proxy runs only while measuring, and its systemd unit stays a dev convenience.
 
 ### P6 — Long-term tracking (ongoing, cheap)
 
@@ -184,7 +187,7 @@ tools/analyze.py        heatmap + hotspot + geometry analysis
 tools/target_drill.py   dead-zone / ground-truth drill
 tools/replay.py         corpus -> decisions (offline)
 phantom/decide.py       pure decision function (shared by all harnesses)
-phantom/daemon.py       userspace uinput proxy (harness + fallback)
+phantom/daemon.py       userspace uinput proxy (dev harness only, not shipped)
 bpf/ftsc1000_filter.bpf.c
 config/filter.toml      rectangles, thresholds, guard
 scripts/touchscreen-toggle.sh
@@ -228,12 +231,26 @@ corpus/                 captures (git-ignored — finger-position data)
 P0 ½d · P1 1d · P2 2d · P3 3d · P4 5d · P5 2d, plus P6 upkeep. P0-P3 already
 produce a usable daily-driver mitigation; P4 makes it disappear from userspace.
 
-## 10. Open decisions
+## 10. Decisions (settled 2026-10-29)
 
-1. Permanent form: HID-BPF only (recommended), or keep the userspace proxy as
-   the shipping form?
-2. Dead zones: purely suppress, or also snap/expand contacts near dead
-   boundaries?
-3. Typing guard: wanted (fewer phantoms while typing) or too aggressive?
-4. How much of the screen is usable today — i.e. is this "make it pleasant
-   again" or "it is currently unusable"?
+1. **HID-BPF is the only shipping form.** The userspace proxy stays a
+   development harness (shadow mode, replay, per-decision logs) and is turned
+   off once the BPF program is attached. Nothing runs in userspace at the end;
+   the proxy is not a permanent fallback.
+2. **Dead zones are not recovered.** Only phantom contacts are suppressed — no
+   snapping, no expanding hit areas near dead boundaries. Revisit only after
+   the ghost map is known and if the blank strips turn out to be painful.
+3. **Capture access via a scoped udev ACL rule** on exactly `/dev/hidraw0` and
+   `/dev/input/event4` (seat user), not `input` group membership.
+4. **Severity today: occasional.** No stopgap filter, no blanket region mask.
+   Measurement can take its time; the ghost map has to be trustworthy before
+   anything is enabled.
+
+The consequence of (1)+(2): the filter's whole job is "never let a damaged-node
+contact become an event", and every rule that only exists to *improve* dead
+areas is out of scope.
+
+Deferred (not decided, revisit with data): the optional typing guard from §4 —
+an ~80 ms suppression window after keyboard input. It reduces phantoms while
+typing but is a mitigation, not a diagnosis, so it stays out of the first
+ruleset.
