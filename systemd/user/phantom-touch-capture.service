@@ -9,7 +9,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/rahul/scripts/touchscreen_driver_fix/tools/capture.py run --label phantom --out /home/rahul/scripts/touchscreen_driver_fix/corpus --heartbeat 5 --duration 0
+ExecStart=/usr/bin/python3 /home/rahul/scripts/touchscreen_driver_fix/tools/capture.py run --label phantom --out /home/rahul/scripts/touchscreen_driver_fix/corpus --heartbeat 5 --duration 0 --keyboard off
 Restart=always
 RestartSec=30
 # Never give up: phantom touches are rare and the whole point is a long window.
