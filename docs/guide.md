@@ -99,6 +99,12 @@ corpus.
 Decision = weighted vote with per-ContactID hysteresis. Hysteresis is what
 keeps a real finger alive once accepted, even if it wanders into a ghost cell.
 
+**Reading a recorded run.** `python3 tools/analyze.py --latest` prints every
+contact with raw digitizer coordinates and 1920x1080 pixel coordinates, groups
+them into sessions by a 2 s gap, and renders a text density map. Scaling uses
+the descriptor's 3200x1800 logical maxima (uniform 0.6), never the 0x0fff
+sentinel. Use `--csv`/`--json` to hand a run to replay or to a test fixture.
+
 **Measurement design.** Two corpora, both replayable: `idle` (nobody touching —
 every contact is a phantom, gives the suppression number) and `drill` (labelled
 real taps on a grid — gives false rejection and the dead-zone map). Every rule

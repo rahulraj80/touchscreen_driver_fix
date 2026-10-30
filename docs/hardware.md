@@ -84,3 +84,17 @@ ls /sys/kernel/btf/ | tr ' ' '\n' | grep -E 'hid_multitouch|i2c_hid'
 grep -E 'CONFIG_HID_BPF|CONFIG_UHID|CONFIG_HID_MULTITOUCH' /boot/config-$(uname -r)
 udev-hid-bpf list-devices
 ```
+
+## Report descriptor facts (verified 2026-10-30)
+
+`/sys/bus/hid/devices/0018:2808:5112.0002/report_descriptor` is 454 bytes and is
+readable without root. Report ID 1 carries the touch frame (60 bytes on the
+wire). The digitizer declares **Logical Maximum 3200 for X and 1800 for Y**
+(16:9); `0x0fff` (4095) is out of range for both axes and is used as the
+"no contact" marker in inactive slots. Per-slot fields are TipSwitch,
+ContactID, X, Y, Width, Height; there is **no pressure and no confidence**
+field. For a 1920x1080 panel the raw-to-pixel scale is therefore a uniform
+0.6 on both axes — do **not** scale against 4095.
+
+`tools/analyze.py` defaults to 3200x1800 for exactly this reason; override with
+`--raw-x-max/--raw-y-max` only if a different panel is ever fitted.
