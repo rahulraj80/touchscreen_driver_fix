@@ -62,6 +62,13 @@ The product map:
 | Product | `bpf/ftsc1000_filter.bpf.c` | same rules at the HID device, auto-attached |
 | Ops | `scripts/`, `phantomctl` | toggle, access setup, status, drift |
 
+**The long-run capture unit.** `systemd --user phantom-touch-capture` runs
+`capture.py run --keyboard off` for days: the scoped ACL covers only the
+digitizer's hidraw + evdev nodes, so any keyboard source would just retry and
+log permission errors. Lid state and suspend/resume are still recorded via
+heartbeats. `scripts/capture.sh mark "..."` writes a marker into the active
+run's control FIFO; `analyze.py --latest` reads the result.
+
 ## 15 minutes — the deep dive
 
 **Why not libinput or KDE settings?** They expose an affine calibration matrix;
